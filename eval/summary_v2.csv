@@ -1,0 +1,5 @@
+difficulty,questions,correct,correct_lenient,accuracy_pct,accuracy_lenient_pct,model
+easy,12,12,12,100.0,100.0,openai/gpt-oss-120b
+medium,14,10,14,71.4,100.0,openai/gpt-oss-120b
+hard,14,14,14,100.0,100.0,openai/gpt-oss-120b
+all,40,36,40,90.0,100.0,openai/gpt-oss-120b

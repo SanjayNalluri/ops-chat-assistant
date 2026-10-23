@@ -1,0 +1,4 @@
+# Needed to run the API (also what Vercel installs)
+fastapi==0.161.0
+httpx==0.28.1
+sqlglot==30.24.0

@@ -1,0 +1,6 @@
+# Everything for the step scripts and tests
+-r requirements.txt
+uvicorn==0.53.0
+pandas==2.3.3
+pytest==9.1.1
+pyodbc

@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/main.py": { "includeFiles": "{app,data,eval}/**" }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/main" }]
+}
