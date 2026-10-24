@@ -123,7 +123,8 @@ def summarise(question: str, columns, rows) -> str:
                  "query result given. Quote the key numbers. Do not guess beyond the result. Brazilian real = BRL. "
                  "Plain text only: no markdown, no bold, no bullet points."},
                 {"role": "user", "content": f"Question: {question}\nColumns: {columns}\nRows ({len(rows)}):\n{preview}"}]
-    return _chat(messages, max_tokens=400).strip()
+    text = _chat(messages, max_tokens=400).strip()
+    return re.sub(r"\*\*|__", "", text)                     # drop markdown bold if the model adds it
 
 
 def ask(question: str, with_summary: bool = True) -> dict:

@@ -44,3 +44,9 @@ def test_dangerous_sql_is_refused_not_repaired(monkeypatch):
     monkeypatch.setattr(engine, "_chat", fake_llm(["```sql\nDROP TABLE orders\n```"]))
     r = engine.ask("drop the orders table")
     assert r["error"].startswith("Blocked") and not r["repaired"] and r["rows"] == []
+
+
+def test_answer_has_no_markdown_bold(monkeypatch):
+    monkeypatch.setattr(engine, "_chat", fake_llm(["```sql\nSELECT 1 AS n FROM orders LIMIT 1\n```",
+                                                   "There are **96018** delivered orders."]))
+    assert engine.ask("How many?")["answer"] == "There are 96018 delivered orders."
