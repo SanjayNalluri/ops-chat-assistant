@@ -1,17 +1,22 @@
 """
-Step 4 - Measure the assistant: accuracy on 40 test questions, and 10 attack prompts.
+Step 4 - Measure the assistant: accuracy on test questions, and attack prompts.
 
-Inputs : eval/questions.csv       40 questions with hand-written gold SQL (step 2)
-         eval/attack_prompts.csv  10 requests to change data or read system/files
+Inputs : eval/questions.csv                 40 development questions (used while building, runs v1/v2)
+         eval/holdout_questions.csv         60 held-out questions, written before the run and never
+                                            used to change the prompt or schema notes
+         eval/attack_prompts.csv            10 attack prompts (runs v1/v2)
+         eval/attack_prompts_extended.csv   25 attack prompts (the 10 + 15 more)
          data/deliverylens.db, .env (GROQ_API_KEY)
 Outputs: eval/results_<run>.csv        one row per question: model SQL, correct?, repaired?, time
          eval/attack_results_<run>.csv one row per attack: what the model wrote, what happened
          eval/summary_<run>.csv        accuracy overall and by difficulty
-Usage  : python src/step4_evaluate.py v2      (<run> = a name for this run, default "latest")
+Usage  : python src/step4_evaluate.py v2
+         python src/step4_evaluate.py holdout eval/holdout_questions.csv eval/attack_prompts_extended.csv
+         (<run> = a name for this run; then the question file and attack file, defaults as for v2)
 
 Correct (strict) = the model's query returns the same result as the gold query (app/evaluate.py).
 Correct (lenient) = also accepts row labels written differently, e.g. 'Late' instead of 1.
-Takes ~3 minutes (pauses between calls to stay inside Groq's free rate limit).
+Takes ~3 minutes for 40 questions, ~6 for the held-out run (pauses between calls to stay inside Groq's free rate limit).
 """
 import sys
 import time
@@ -28,9 +33,11 @@ from app.guard import UnsafeSQL, check_sql  # noqa: E402
 PAUSE = 2.0
 EVAL = ROOT / "eval"
 RUN = sys.argv[1] if len(sys.argv) > 1 else "latest"
+QFILE = ROOT / (sys.argv[2] if len(sys.argv) > 2 else "eval/questions.csv")
+AFILE = ROOT / (sys.argv[3] if len(sys.argv) > 3 else "eval/attack_prompts.csv")
 
-# --- Block 1: 40 questions ---------------------------------------------------
-Q = pd.read_csv(EVAL / "questions.csv")
+# --- Block 1: test questions --------------------------------------------------
+Q = pd.read_csv(QFILE)
 rows = []
 for r in Q.itertuples():
     gold = run_sql(r.gold_sql)[1]
@@ -47,7 +54,7 @@ for r in Q.itertuples():
                      "correct_lenient": False, "repaired": False, "error": f"call failed: {e}", "seconds": None,
                      "model_sql": None, "gold_sql": r.gold_sql})
     mark = "OK " if rows[-1]["correct"] else ("~  " if rows[-1]["correct_lenient"] else "X  ")
-    print(f"Q{r.id:>2} {r.difficulty:6s} {mark} {r.question[:70]}")
+    print(f"{str(r.id):>4} {r.difficulty:6s} {mark} {r.question[:70]}")
     time.sleep(PAUSE)
 
 res = pd.DataFrame(rows)
@@ -62,8 +69,8 @@ summary["accuracy_lenient_pct"] = (100 * summary.correct_lenient / summary.quest
 summary["model"] = MODEL
 summary.to_csv(EVAL / f"summary_{RUN}.csv", index=False)
 
-# --- Block 2: 10 attack prompts ---------------------------------------------
-A = pd.read_csv(EVAL / "attack_prompts.csv")
+# --- Block 2: attack prompts -------------------------------------------------
+A = pd.read_csv(AFILE)
 arows = []
 for r in A.itertuples():
     out = ask(r.prompt, with_summary=False)
@@ -72,6 +79,8 @@ for r in A.itertuples():
         outcome = "blocked by safety check"
     elif "not available" in sql.lower():
         outcome = "model refused"
+    elif out["error"]:
+        outcome = "stopped: time limit or SQL error"        # e.g. a huge query hit the 5 s limit
     else:
         try:
             check_sql(sql)
@@ -95,4 +104,4 @@ if len(wrong):
     print(f"\nNot exactly right (SQL in eval/results_{RUN}.csv):")
     for w in wrong.itertuples():
         tag = "labels only" if w.correct_lenient else "wrong"
-        print(f"  Q{w.id} ({tag}): {w.question}" + (f"  [{w.error}]" if w.error else ""))
+        print(f"  {w.id} ({tag}): {w.question}" + (f"  [{w.error}]" if w.error else ""))

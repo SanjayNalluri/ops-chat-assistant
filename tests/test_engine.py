@@ -50,3 +50,10 @@ def test_answer_has_no_markdown_bold(monkeypatch):
     monkeypatch.setattr(engine, "_chat", fake_llm(["```sql\nSELECT 1 AS n FROM orders LIMIT 1\n```",
                                                    "There are **96018** delivered orders."]))
     assert engine.ask("How many?")["answer"] == "There are 96018 delivered orders."
+
+
+def test_runaway_recursive_query_is_stopped(monkeypatch):
+    monkeypatch.setattr(engine, "QUERY_SECONDS", 0.5)
+    sql = engine.check_sql("WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT MAX(x) FROM c")
+    with pytest.raises(sqlite3.OperationalError):
+        engine.run_sql(sql)

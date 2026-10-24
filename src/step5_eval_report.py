@@ -1,12 +1,14 @@
 """
 Step 5 - Turn the evaluation runs into one small file the API and web app can show.
 
-Inputs : eval/results_v1.csv, eval/results_v2.csv (step 4 runs), eval/attack_results_v2.csv,
-         eval/questions.csv, data/deliverylens.db
+Inputs : eval/results_v1.csv, eval/results_v2.csv   40 development questions (runs while building)
+         eval/results_holdout.csv                   60 held-out questions (if that run exists)
+         eval/attack_results_holdout.csv            25 attack prompts (falls back to the v2 run's 10)
+         data/deliverylens.db
 Output : eval/evaluation.json
 
-Both runs are re-graded here with the same grader (strict and lenient), by re-running the SQL
-the model wrote, so the two runs are scored in exactly the same way.
+Every run is re-graded here with the same grader (strict and lenient), by re-running the SQL
+the model wrote, so all runs are scored in exactly the same way.
 """
 import json
 import sys
@@ -21,8 +23,8 @@ from app.evaluate import results_match  # noqa: E402
 from app.guard import check_sql  # noqa: E402
 
 EVAL = ROOT / "eval"
-RUNS = {"v1": "first run, schema notes only",
-        "v2": "after adding 3 schema notes (customer join, 'month' = purchase month, de-duplicated items)"}
+DEV_RUNS = {"v1": "first run, schema notes only",
+            "v2": "after adding 3 schema notes (customer join, 'month' = purchase month, de-duplicated items)"}
 
 
 def grade(row):
@@ -36,27 +38,41 @@ def grade(row):
     return results_match(gold, pred), results_match(gold, pred, relabel=True)
 
 
-report = {"model": MODEL, "questions": 40, "runs": []}
-for run, note in RUNS.items():
-    df = pd.read_csv(EVAL / f"results_{run}.csv")
+def summarise_run(df, run, note):
     df[["strict", "lenient"]] = [grade(r) for r in df.itertuples()]
-    by = []
-    for d in ["easy", "medium", "hard"]:
-        x = df[df.difficulty == d]
-        by.append({"difficulty": d, "questions": len(x), "strict": int(x.strict.sum()), "lenient": int(x.lenient.sum())})
-    report["runs"].append({
-        "run": run, "note": note,
-        "strict": int(df.strict.sum()), "lenient": int(df.lenient.sum()),
-        "strict_pct": round(100 * df.strict.mean(), 1), "lenient_pct": round(100 * df.lenient.mean(), 1),
-        "median_seconds": round(float(df.seconds.median()), 2), "repaired": int(df.repaired.sum()),
-        "by_difficulty": by,
-        "labels_only": df[~df.strict & df.lenient].id.tolist(),
-        "wrong": df[~df.lenient][["id", "question"]].to_dict(orient="records"),
-    })
-    print(f"{run}: strict {df.strict.sum()}/40 ({100 * df.strict.mean():.1f}%), "
-          f"lenient {df.lenient.sum()}/40 ({100 * df.lenient.mean():.1f}%)")
+    by = [{"difficulty": d, "questions": int((df.difficulty == d).sum()),
+           "strict": int(df[df.difficulty == d].strict.sum()), "lenient": int(df[df.difficulty == d].lenient.sum())}
+          for d in ["easy", "medium", "hard"]]
+    out = {"run": run, "note": note, "questions": len(df),
+           "strict": int(df.strict.sum()), "lenient": int(df.lenient.sum()),
+           "strict_pct": round(100 * df.strict.mean(), 1), "lenient_pct": round(100 * df.lenient.mean(), 1),
+           "median_seconds": round(float(df.seconds.median()), 2), "repaired": int(df.repaired.sum()),
+           "by_difficulty": by,
+           "labels_only": df[~df.strict & df.lenient].id.astype(str).tolist(),
+           "wrong": df[~df.lenient][["id", "question"]].astype({"id": str}).to_dict(orient="records")}
+    if "category" in df:
+        out["by_category"] = [{"category": c, "questions": int(len(g)), "strict": int(g.strict.sum()),
+                               "lenient": int(g.lenient.sum())} for c, g in df.groupby("category")]
+    print(f"{run}: strict {out['strict']}/{len(df)} ({out['strict_pct']}%), "
+          f"lenient {out['lenient']}/{len(df)} ({out['lenient_pct']}%)")
+    return out
 
-att = pd.read_csv(EVAL / "attack_results_v2.csv")
+
+report = {"model": MODEL, "questions": 40, "runs": []}
+for run, note in DEV_RUNS.items():
+    report["runs"].append(summarise_run(pd.read_csv(EVAL / f"results_{run}.csv"), run, note))
+
+hold = EVAL / "results_holdout.csv"
+if hold.exists():
+    df = pd.read_csv(hold)
+    df = df.merge(pd.read_csv(EVAL / "holdout_questions.csv")[["id", "category"]], on="id", how="left")
+    report["holdout"] = summarise_run(df, "holdout", "60 new questions written before the run; prompt and "
+                                                    "schema notes unchanged since v2")
+
+af = EVAL / "attack_results_holdout.csv"
+if not af.exists():
+    af = EVAL / "attack_results_v2.csv"
+att = pd.read_csv(af)
 report["attacks"] = {"total": len(att), "outcomes": att.outcome.value_counts().to_dict(),
                      "list": att[["prompt", "outcome"]].to_dict(orient="records")}
 print("attacks:", report["attacks"]["outcomes"])

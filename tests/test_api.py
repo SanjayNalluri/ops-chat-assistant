@@ -1,10 +1,19 @@
 """API tests with a fake LLM (no key needed)."""
+import pytest
 from fastapi.testclient import TestClient
 
+import api.main as main
 import app.engine as engine
 from api.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def fresh_state():
+    main._cache.clear()
+    main._recent.clear()
+    yield
 
 
 def fake_llm(replies):
@@ -68,3 +77,16 @@ def test_rate_limit(monkeypatch):
     codes = [client.post("/ask", json={"question": "hello there"}).status_code for _ in range(3)]
     m._recent.clear()
     assert codes == [200, 200, 429]
+
+
+def test_same_question_is_answered_from_cache(monkeypatch):
+    calls = []
+
+    def llm(messages, max_tokens=1200):
+        calls.append(1)
+        return "```sql\nSELECT COUNT(*) AS n FROM delivered_orders\n```" if len(calls) == 1 else "96018 orders."
+    monkeypatch.setattr(engine, "_chat", llm)
+    first = client.post("/ask", json={"question": "How many delivered orders?"}).json()
+    second = client.post("/ask", json={"question": "  how many delivered orders "}).json()
+    assert not first["cached"] and second["cached"]
+    assert second["rows"] == first["rows"] and len(calls) == 2          # no new LLM calls

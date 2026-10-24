@@ -127,3 +127,5 @@ button.link { background: none; border: 0; color: var(--accent); cursor: pointer
 .muted { color: var(--muted); }
 
 .foot { color: var(--muted); font-size: 13px; padding: 28px 16px 40px; text-align: center; border-top: 1px solid var(--line); margin-top: 40px; }
+.plain { margin: 0; padding-left: 18px; }
+.plain li { margin-bottom: 4px; }

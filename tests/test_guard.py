@@ -19,6 +19,10 @@ UNSAFE = [
     "SELECT load_extension('x')", "SELECT readfile('/etc/passwd')",
     "WITH x AS (DELETE FROM orders RETURNING *) SELECT * FROM x",
     "", "  ;  ",
+    "SELECT * FROM pragma_table_list",                    # table-valued pragma
+    "SELECT 1 FROM orders; -- harmless\nDROP TABLE orders",  # second statement after a comment
+    "SELECT name FROM sqlite_schema",                      # system table, newer name
+    "SELECT * FROM orders WHERE order_id IN (SELECT 1 FROM sqlite_master)",  # hidden in a subquery
 ]
 
 
@@ -43,3 +47,7 @@ def test_big_limit_is_capped():
 
 def test_small_limit_kept():
     assert check_sql("SELECT * FROM orders LIMIT 5") == "SELECT * FROM orders LIMIT 5"
+
+
+def test_comment_text_is_not_a_statement():
+    assert check_sql("SELECT * FROM orders /* ; DROP TABLE orders */ LIMIT 1")

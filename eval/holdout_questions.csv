@@ -1,0 +1,61 @@
+id,difficulty,category,question,gold_sql
+H1,easy,count,How many distinct customers (people) are in the customers table?,SELECT COUNT(DISTINCT customer_unique_id) FROM customers
+H2,easy,count,How many products are in the catalogue?,SELECT COUNT(*) FROM products
+H3,easy,count,How many product categories have an English name?,SELECT COUNT(*) FROM category_en
+H4,easy,aggregate,What is the longest total delivery time in days among delivered orders?,"SELECT ROUND(MAX(total_days),2) FROM delivered_orders"
+H5,easy,aggregate,What is the average promised delivery time in days for delivered orders?,"SELECT ROUND(AVG(promised_days),2) FROM delivered_orders"
+H6,easy,filter,How many delivered orders went to customers in Sao Paulo state (SP)?,SELECT COUNT(*) FROM delivered_orders WHERE customer_state='SP'
+H7,easy,aggregate,What is the average freight value per delivered order?,"SELECT ROUND(AVG(freight_value),2) FROM delivered_orders"
+H8,easy,filter,How many payments were made by boleto?,SELECT COUNT(*) FROM payments WHERE payment_type='boleto'
+H9,easy,aggregate,What is the largest single payment value?,"SELECT ROUND(MAX(payment_value),2) FROM payments"
+H10,easy,filter,How many orders have the status shipped?,SELECT COUNT(*) FROM orders WHERE order_status='shipped'
+H11,easy,aggregate,What is the average item price in order_items?,"SELECT ROUND(AVG(price),2) FROM order_items"
+H12,easy,nulls,How many delivered orders have no review score?,SELECT COUNT(*) FROM delivered_orders WHERE review_score IS NULL
+H13,easy,filter,How many sellers are located in Parana state (PR)?,SELECT COUNT(*) FROM sellers WHERE seller_state='PR'
+H14,easy,aggregate,What is the average transit time (carrier to customer) in days?,"SELECT ROUND(AVG(transit_days),2) FROM delivered_orders"
+H15,easy,filter,How many delivered orders arrived on or before the promised date?,SELECT COUNT(*) FROM delivered_orders WHERE is_late=0
+H16,medium,dates,How many delivered orders were placed in each year?,"SELECT strftime('%Y',order_purchase_timestamp) AS y, COUNT(*) FROM delivered_orders GROUP BY y ORDER BY y"
+H17,medium,group,"What is the average review score for delivered orders with 1, 2 and 3 items?","SELECT n_items, ROUND(AVG(review_score),2) FROM delivered_orders WHERE n_items IN (1,2,3) GROUP BY n_items"
+H18,medium,ranking,Which 5 seller states have the most delivered single-seller orders?,"SELECT seller_state, COUNT(*) AS n FROM delivered_orders WHERE seller_state IS NOT NULL GROUP BY seller_state ORDER BY n DESC LIMIT 5"
+H19,medium,duplicates,How many distinct orders used each payment type?,"SELECT payment_type, COUNT(DISTINCT order_id) FROM payments GROUP BY payment_type"
+H20,medium,nulls,"Among delivered orders that have a review, what percentage got 5 stars?","SELECT ROUND(100.0*AVG(review_score=5),2) FROM delivered_orders WHERE review_score IS NOT NULL"
+H21,medium,dates,What is the late rate for each day of the week the order was placed?,"SELECT strftime('%w',order_purchase_timestamp) AS d, ROUND(100.0*AVG(is_late),2) FROM delivered_orders GROUP BY d"
+H22,medium,aggregate,What is the average number of items per delivered order?,"SELECT ROUND(AVG(n_items),2) FROM delivered_orders"
+H23,medium,ranking,Which 3 months of 2017 had the most delivered orders?,"SELECT purchase_month, COUNT(*) AS n FROM delivered_orders WHERE purchase_month LIKE '2017%' GROUP BY purchase_month ORDER BY n DESC LIMIT 3"
+H24,medium,filter,How many delivered orders took more than 30 days from purchase to delivery?,SELECT COUNT(*) FROM delivered_orders WHERE total_days>30
+H25,medium,group,"For orders delivered 1 to 5 days late, what is the average review score for each number of days late?","SELECT days_vs_promise, ROUND(AVG(review_score),2) FROM delivered_orders WHERE days_vs_promise BETWEEN 1 AND 5 GROUP BY days_vs_promise"
+H26,medium,duplicates,Which 5 customer cities have the most distinct customers (people)?,"SELECT customer_city, COUNT(DISTINCT customer_unique_id) AS n FROM customers GROUP BY customer_city ORDER BY n DESC LIMIT 5"
+H27,medium,group,What is the average payment value for each payment type?,"SELECT payment_type, ROUND(AVG(payment_value),2) FROM payments GROUP BY payment_type"
+H28,medium,aggregate,What percentage of all orders were canceled?,"SELECT ROUND(100.0*AVG(order_status='canceled'),2) FROM orders"
+H29,medium,duplicates,How many orders have more than one payment record?,SELECT COUNT(*) FROM (SELECT order_id FROM payments GROUP BY order_id HAVING COUNT(*)>1)
+H30,medium,group,What is the average handling time for orders where the seller missed the deadline versus met it?,"SELECT seller_missed_deadline, ROUND(AVG(handling_days),2) FROM delivered_orders GROUP BY seller_missed_deadline"
+H31,medium,dates,How many delivered orders were placed in November 2017?,SELECT COUNT(*) FROM delivered_orders WHERE purchase_month='2017-11-01'
+H32,medium,group,What is the late rate for orders with a 1-star review compared with orders with a 5-star review?,"SELECT review_score, ROUND(100.0*AVG(is_late),2) FROM delivered_orders WHERE review_score IN (1,5) GROUP BY review_score"
+H33,medium,ranking,Which customer state has the longest average total delivery time?,"SELECT customer_state, ROUND(AVG(total_days),2) AS t FROM delivered_orders GROUP BY customer_state ORDER BY t DESC LIMIT 1"
+H34,medium,filter,How many delivered orders contain 3 or more items?,SELECT COUNT(*) FROM delivered_orders WHERE n_items>=3
+H35,medium,aggregate,"Across all delivered orders, what is total freight as a percentage of total item value?","SELECT ROUND(100.0*SUM(freight_value)/SUM(items_value),2) FROM delivered_orders"
+H36,medium,nulls,How many products have no category name?,SELECT COUNT(*) FROM products WHERE product_category_name IS NULL
+H37,medium,group,"For payment types with at least 1000 payments, what is the average number of installments?","SELECT payment_type, ROUND(AVG(payment_installments),2) FROM payments GROUP BY payment_type HAVING COUNT(*)>=1000"
+H38,medium,dates,What was the late rate in each quarter of 2018?,"SELECT (CAST(strftime('%m',order_purchase_timestamp) AS INT)+2)/3 AS q, ROUND(100.0*AVG(is_late),2) FROM delivered_orders WHERE strftime('%Y',order_purchase_timestamp)='2018' GROUP BY q ORDER BY q"
+H39,medium,filter,How many delivered orders were shipped by a seller in the same state as the customer?,SELECT COUNT(*) FROM delivered_orders WHERE same_state=1
+H40,medium,dates,"What was the total item value of delivered orders placed in 2018, in BRL?","SELECT ROUND(SUM(items_value),2) FROM delivered_orders WHERE strftime('%Y',order_purchase_timestamp)='2018'"
+H41,hard,joins,"Among product categories (English names) with at least 500 delivered orders, which 5 have the highest late rate?","SELECT ce.product_category_name_english, ROUND(100.0*AVG(d.is_late),2) AS r FROM delivered_orders d JOIN (SELECT DISTINCT order_id, product_id FROM order_items) oi ON oi.order_id=d.order_id JOIN products p ON p.product_id=oi.product_id JOIN category_en ce ON ce.product_category_name=p.product_category_name GROUP BY ce.product_category_name_english HAVING COUNT(DISTINCT d.order_id)>=500 ORDER BY r DESC LIMIT 5"
+H42,hard,ranking,Which 5 sellers have the highest total item revenue (sum of item prices)?,"SELECT seller_id, ROUND(SUM(price),2) AS rev FROM order_items GROUP BY seller_id ORDER BY rev DESC LIMIT 5"
+H43,hard,subquery,"Among sellers with at least 50 delivered single-seller orders, what percentage have a late rate above 10%?","SELECT ROUND(100.0*AVG(r>0.10),2) FROM (SELECT seller_id, AVG(is_late) AS r FROM delivered_orders WHERE seller_id IS NOT NULL GROUP BY seller_id HAVING COUNT(*)>=50)"
+H44,hard,dates,How many customers placed delivered orders in both 2017 and 2018?,"SELECT COUNT(*) FROM (SELECT customer_unique_id FROM delivered_orders GROUP BY customer_unique_id HAVING COUNT(DISTINCT strftime('%Y',order_purchase_timestamp))=2)"
+H45,hard,buckets,"What is the average review score for orders that arrived more than 7 days early, 0 to 7 days early, and late?","SELECT CASE WHEN days_vs_promise < -7 THEN 'early_8plus' WHEN days_vs_promise <= 0 THEN 'early_0_7' ELSE 'late' END AS b, ROUND(AVG(review_score),2) FROM delivered_orders GROUP BY b"
+H46,hard,subquery,"Among customer states with at least 1000 single-seller delivered orders, which has the highest share of cross-state orders?","SELECT customer_state, ROUND(100.0*AVG(same_state=0),2) AS s FROM delivered_orders WHERE seller_id IS NOT NULL GROUP BY customer_state HAVING COUNT(*)>=1000 ORDER BY s DESC LIMIT 1"
+H47,hard,ranking,"Which 3 months had the largest number of late orders (count, not rate)?","SELECT purchase_month, SUM(is_late) AS n FROM delivered_orders GROUP BY purchase_month ORDER BY n DESC LIMIT 3"
+H48,hard,joins,How many sellers sold products in at least 10 different categories?,SELECT COUNT(*) FROM (SELECT oi.seller_id FROM order_items oi JOIN products p ON p.product_id=oi.product_id GROUP BY oi.seller_id HAVING COUNT(DISTINCT p.product_category_name)>=10)
+H49,hard,duplicates,What percentage of customers (people with a delivered order) placed more than one delivered order?,"SELECT ROUND(100.0*AVG(n>1),2) FROM (SELECT customer_unique_id, COUNT(*) AS n FROM delivered_orders GROUP BY customer_unique_id)"
+H50,hard,ranking,Which 5 customer states have the biggest gap between average promised days and average actual delivery days?,"SELECT customer_state, ROUND(AVG(promised_days)-AVG(total_days),2) AS g FROM delivered_orders GROUP BY customer_state ORDER BY g DESC LIMIT 5"
+H51,hard,nulls,"For each review score, what percentage of delivered orders were late?","SELECT review_score, ROUND(100.0*AVG(is_late),2) FROM delivered_orders WHERE review_score IS NOT NULL GROUP BY review_score"
+H52,hard,aggregate,What percentage of total payment value was paid by credit card?,"SELECT ROUND(100.0*SUM(CASE WHEN payment_type='credit_card' THEN payment_value ELSE 0 END)/SUM(payment_value),2) FROM payments"
+H53,hard,joins,"Among product categories (English names) with at least 200 items sold, which 5 have the highest average item price?","SELECT ce.product_category_name_english, ROUND(AVG(oi.price),2) AS a FROM order_items oi JOIN products p ON p.product_id=oi.product_id JOIN category_en ce ON ce.product_category_name=p.product_category_name GROUP BY ce.product_category_name_english HAVING COUNT(*)>=200 ORDER BY a DESC LIMIT 5"
+H54,hard,dates,"In 2017, what was the late rate for orders placed from 20 November to 31 December compared with orders placed earlier in the year?","SELECT CASE WHEN order_purchase_timestamp>='2017-11-20' THEN 'holiday' ELSE 'rest' END AS p, ROUND(100.0*AVG(is_late),2) FROM delivered_orders WHERE strftime('%Y',order_purchase_timestamp)='2017' GROUP BY p"
+H55,hard,filter,How many delivered orders had the seller miss the hand-over deadline but still arrived on time?,SELECT COUNT(*) FROM delivered_orders WHERE seller_missed_deadline=1 AND is_late=0
+H56,hard,ranking,"Among customer states with at least 1000 delivered orders, which has the lowest late rate?","SELECT customer_state, ROUND(100.0*AVG(is_late),2) AS r FROM delivered_orders GROUP BY customer_state HAVING COUNT(*)>=1000 ORDER BY r ASC LIMIT 1"
+H57,hard,aggregate,"For delivered orders with more than one item, what is the average number of distinct sellers per order?","SELECT ROUND(AVG(n_sellers),2) FROM delivered_orders WHERE n_items>1"
+H58,hard,ranking,Which 5 sellers have the most 1-star reviews on their delivered single-seller orders?,"SELECT seller_id, COUNT(*) AS n FROM delivered_orders WHERE seller_id IS NOT NULL AND review_score=1 GROUP BY seller_id ORDER BY n DESC LIMIT 5"
+H59,hard,filter,What percentage of delivered orders arrived within 7 days of purchase?,"SELECT ROUND(100.0*AVG(total_days<=7),2) FROM delivered_orders"
+H60,hard,dates,"Which weekday of purchase has the highest average order value (items plus freight) for delivered orders? Give the weekday number, 0 = Sunday.","SELECT CAST(strftime('%w',order_purchase_timestamp) AS INT) AS d, ROUND(AVG(items_value+freight_value),2) AS v FROM delivered_orders GROUP BY d ORDER BY v DESC LIMIT 1"

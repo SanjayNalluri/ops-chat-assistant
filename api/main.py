@@ -4,11 +4,12 @@ Run locally : uvicorn api.main:app --reload      (from the project folder)
 Docs        : http://127.0.0.1:8000/docs
 """
 import json
+import logging
+import re
 import sys
-from pathlib import Path
-
 import time
-from collections import defaultdict, deque
+from collections import OrderedDict, defaultdict, deque
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +25,23 @@ app = FastAPI(title="Ops Chat API",
                           "An LLM writes SQLite; every query is checked to be a single read-only SELECT "
                           "and runs on a read-only database with a time limit.",
               version="1.0.0")
+# One JSON line per question in the server log (Vercel > Logs), for monitoring errors and speed
+log = logging.getLogger("opschat")
+if not log.handlers:
+    _h = logging.StreamHandler(sys.stdout)
+    _h.setFormatter(logging.Formatter("%(message)s"))
+    log.addHandler(_h)
+    log.setLevel(logging.INFO)
+
+# Same question asked again -> answer from memory (saves LLM calls and time). Per server instance.
+CACHE_SIZE = 200
+_cache: "OrderedDict[str, dict]" = OrderedDict()
+
+
+def _key(question: str) -> str:
+    return re.sub(r"\s+", " ", question.strip().lower()).rstrip("?.! ")
+
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"], allow_headers=["*"])
 
 EXAMPLES = [
@@ -67,6 +85,7 @@ class Answer(BaseModel):
     refused: bool
     repaired: bool
     seconds: float
+    cached: bool = False
 
 
 @app.get("/", include_in_schema=False)
@@ -102,9 +121,30 @@ def ask(q: Question, request: Request):
     ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0].strip()
     if not _allow(ip):
         raise HTTPException(429, "Too many questions in a short time. Please wait a few minutes.")
+    key = _key(q.question)
+    if key in _cache:
+        _cache.move_to_end(key)
+        out = {**_cache[key], "question": q.question.strip(), "cached": True}
+        _log(out, ip)
+        return out
     try:
         out = engine.ask(q.question.strip())
     except engine.LLMError as e:
+        log.info(json.dumps({"event": "ask", "status": "llm_unavailable", "detail": str(e)[:200]}))
         raise HTTPException(503, f"The language model is not available right now: {e}") from None
     out["rows"] = [list(r) for r in out["rows"]]
+    out["cached"] = False
+    if out["error"] is None:                                   # only cache answers that worked
+        _cache[key] = out
+        if len(_cache) > CACHE_SIZE:
+            _cache.popitem(last=False)
+    _log(out, ip)
     return out
+
+
+def _log(out: dict, ip: str):
+    status = "refused" if out.get("refused") else ("blocked" if (out["error"] or "").startswith("Blocked")
+                                                  else ("sql_error" if out["error"] else "ok"))
+    log.info(json.dumps({"event": "ask", "status": status, "cached": out["cached"], "repaired": out["repaired"],
+                         "rows": len(out["rows"]), "seconds": out["seconds"], "question": out["question"][:200],
+                         "visitor": hash(ip) % 10_000}))
