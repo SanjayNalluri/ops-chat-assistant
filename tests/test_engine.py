@@ -47,9 +47,17 @@ def test_dangerous_sql_is_refused_not_repaired(monkeypatch):
 
 
 def test_answer_has_no_markdown_bold(monkeypatch):
-    monkeypatch.setattr(engine, "_chat", fake_llm(["```sql\nSELECT 1 AS n FROM orders LIMIT 1\n```",
+    monkeypatch.setattr(engine, "_chat", fake_llm(["```sql\nSELECT COUNT(*) AS n FROM delivered_orders\n```",
                                                    "There are **96018** delivered orders."]))
     assert engine.ask("How many?")["answer"] == "There are 96018 delivered orders."
+
+
+def test_misquoted_number_is_rewritten(monkeypatch):
+    monkeypatch.setattr(engine, "_chat", fake_llm(["```sql\nSELECT COUNT(*) AS n FROM delivered_orders\n```",
+                                                   "There are 96,100 delivered orders.",       # wrong
+                                                   "There are 96,018 delivered orders."]))     # after the check
+    r = engine.ask("How many?")
+    assert r["answer"] == "There are 96,018 delivered orders." and r["rewrites"] == 1 and r["ungrounded"] == []
 
 
 def test_runaway_recursive_query_is_stopped(monkeypatch):
@@ -57,3 +65,25 @@ def test_runaway_recursive_query_is_stopped(monkeypatch):
     sql = engine.check_sql("WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT MAX(x) FROM c")
     with pytest.raises(sqlite3.OperationalError):
         engine.run_sql(sql)
+
+
+def test_network_drop_is_retried(monkeypatch):
+    import httpx
+    calls = []
+
+    class Ok:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return {"choices": [{"message": {"content": "hi"}}]}
+
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ReadError("connection reset")
+        return Ok()
+    monkeypatch.setenv("GROQ_API_KEY", "test")
+    monkeypatch.setattr(engine.httpx, "post", flaky)
+    monkeypatch.setattr(engine.time, "sleep", lambda s: None)
+    assert engine._chat([{"role": "user", "content": "x"}]) == "hi" and len(calls) == 2

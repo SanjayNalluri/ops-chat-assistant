@@ -13,6 +13,7 @@ client = TestClient(app)
 def fresh_state():
     main._cache.clear()
     main._recent.clear()
+    main._recent_agent.clear()
     yield
 
 
@@ -90,3 +91,27 @@ def test_same_question_is_answered_from_cache(monkeypatch):
     second = client.post("/ask", json={"question": "  how many delivered orders "}).json()
     assert not first["cached"] and second["cached"]
     assert second["rows"] == first["rows"] and len(calls) == 2          # no new LLM calls
+
+
+def test_agent_endpoint(monkeypatch):
+    import json
+    import app.agent as agent
+    steps = iter([
+        [{"id": "a", "type": "function", "function": {"name": "run_sql", "arguments": json.dumps(
+            {"sql": "SELECT COUNT(*) AS n FROM delivered_orders", "purpose": "count"})}}],
+        [{"id": "b", "type": "function", "function": {"name": "final_answer", "arguments": json.dumps(
+            {"answer": "96018 delivered orders.", "final_sql": "SELECT COUNT(*) AS n FROM delivered_orders",
+             "refused": False})}}]])
+    monkeypatch.setattr(agent, "_chat_tools", lambda m: ({"role": "assistant", "content": "", "tool_calls": next(steps)},
+                                                          {"total_tokens": 50}))
+    r = client.post("/agent", json={"question": "How many delivered orders?"}).json()
+    assert r["rows"] == [[96018]] and r["queries"] == 1 and r["trace"][0]["purpose"] == "count"
+    assert client.post("/agent", json={"question": "how many delivered orders"}).json()["cached"]
+
+
+def test_agent_rate_limit(monkeypatch):
+    monkeypatch.setattr(main, "run_agent", lambda q: {"question": q, "answer": "x", "sql": None, "columns": [],
+                        "rows": [], "error": "e", "refused": False, "steps": 1, "queries": 0, "tokens": 1,
+                        "seconds": 0.1, "trace": []})
+    codes = [client.post("/agent", json={"question": f"question {i}"}).status_code for i in range(main.AGENT_LIMIT + 1)]
+    assert codes[-1] == 429 and codes[0] == 200

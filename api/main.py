@@ -19,12 +19,13 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from app import engine  # noqa: E402
+from app.agent import MAX_QUERIES, MAX_STEPS, run_agent  # noqa: E402
 
 app = FastAPI(title="Ops Chat API",
               description="Ask questions about 96,018 delivered marketplace orders (Olist, 2017-2018). "
                           "An LLM writes SQLite; every query is checked to be a single read-only SELECT "
                           "and runs on a read-only database with a time limit.",
-              version="1.0.0")
+              version="2.0.0")
 # One JSON line per question in the server log (Vercel > Logs), for monitoring errors and speed
 log = logging.getLogger("opschat")
 if not log.handlers:
@@ -61,14 +62,24 @@ LIMIT, WINDOW = 20, 600                       # 20 questions per 10 minutes
 _recent = defaultdict(deque)
 
 
-def _allow(ip: str) -> bool:
-    now, q = time.time(), _recent[ip]
+AGENT_LIMIT = 8                               # the agent uses several LLM calls per question
+_recent_agent = defaultdict(deque)
+
+
+def _allow(ip: str, recent=None, limit=None) -> bool:
+    recent = _recent if recent is None else recent
+    limit = LIMIT if limit is None else limit                    # read at call time (tests change LIMIT)
+    now, q = time.time(), recent[ip]
     while q and now - q[0] > WINDOW:
         q.popleft()
-    if len(q) >= LIMIT:
+    if len(q) >= limit:
         return False
     q.append(now)
     return True
+
+
+def _ip(request: Request) -> str:
+    return request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0].strip()
 
 
 class Question(BaseModel):
@@ -85,6 +96,32 @@ class Answer(BaseModel):
     refused: bool
     repaired: bool
     seconds: float
+    cached: bool = False
+
+
+class Step(BaseModel):
+    tool: str
+    sql: str | None = None
+    purpose: str | None = None
+    ok: bool | None = None
+    rows: int | None = None
+    error: str | None = None
+    table: str | None = None
+
+
+class AgentAnswer(BaseModel):
+    question: str
+    answer: str | None
+    sql: str | None
+    columns: list[str]
+    rows: list[list]
+    error: str | None
+    refused: bool
+    steps: int
+    queries: int
+    tokens: int
+    seconds: float
+    trace: list[Step]
     cached: bool = False
 
 
@@ -118,7 +155,7 @@ def evaluation():
 
 @app.post("/ask", response_model=Answer)
 def ask(q: Question, request: Request):
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0].strip()
+    ip = _ip(request)
     if not _allow(ip):
         raise HTTPException(429, "Too many questions in a short time. Please wait a few minutes.")
     key = _key(q.question)
@@ -139,6 +176,33 @@ def ask(q: Question, request: Request):
         if len(_cache) > CACHE_SIZE:
             _cache.popitem(last=False)
     _log(out, ip)
+    return out
+
+
+@app.post("/agent", response_model=AgentAnswer,
+          summary=f"v2 agent: plans and runs up to {MAX_QUERIES} read-only queries ({MAX_STEPS} steps), then answers")
+def agent(q: Question, request: Request):
+    ip = _ip(request)
+    if not _allow(ip, _recent_agent, AGENT_LIMIT):
+        raise HTTPException(429, "Too many agent questions in a short time. Please wait a few minutes.")
+    key = "agent:" + _key(q.question)
+    if key in _cache:
+        _cache.move_to_end(key)
+        return {**_cache[key], "question": q.question.strip(), "cached": True}
+    try:
+        out = run_agent(q.question.strip())
+    except engine.LLMError as e:
+        log.info(json.dumps({"event": "agent", "status": "llm_unavailable", "detail": str(e)[:200]}))
+        raise HTTPException(503, f"The language model is not available right now: {e}") from None
+    out["rows"] = [list(r) for r in out["rows"]]
+    out["cached"] = False
+    if out["error"] is None:
+        _cache[key] = out
+        if len(_cache) > CACHE_SIZE:
+            _cache.popitem(last=False)
+    log.info(json.dumps({"event": "agent", "status": "refused" if out["refused"] else ("error" if out["error"] else "ok"),
+                         "steps": out["steps"], "queries": out["queries"], "tokens": out["tokens"],
+                         "seconds": out["seconds"], "question": out["question"][:200], "visitor": hash(ip) % 10_000}))
     return out
 
 

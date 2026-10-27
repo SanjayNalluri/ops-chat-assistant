@@ -50,6 +50,8 @@ def check_sql(sql: str) -> str:
         name = t.name.lower()
         if t.args.get("db") or t.args.get("catalog"):
             raise UnsafeSQL("schema-qualified table names are not allowed")
+        if name.startswith(("sqlite_", "pragma_")):             # system tables / PRAGMA functions: never allowed
+            raise UnsafeSQL(f"system table {t.name} is not allowed")
         if name not in ALLOWED_TABLES and name not in ctes:
             raise UnsafeSQL(f"unknown table: {t.name}", repairable=True)
     limit = tree.args.get("limit")

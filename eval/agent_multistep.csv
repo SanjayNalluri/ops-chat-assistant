@@ -1,0 +1,157 @@
+id,question,facts,correct,missing,v1_correct,v1_missing,v1_answer,steps,queries,tokens,seconds,finished_by,empty_replies,error,agent_sql,agent_answer
+M1,"Which customer state had the highest late rate for orders purchased in 2018, and what was that same state's late rate for orders purchased in 2017?",AL ; 22.22 ; 20.71,True,,True,,"AL had the highest late rate in 2018 at ""22.22%"" and its late rate in 2017 was ""20.71%"".",3,1,3586,5.37,answer writer (fallback),2,,"SELECT
+  customer_state,
+  ROUND(100.0 * AVG(CASE WHEN strftime('%Y', order_purchase_timestamp) = '2018' THEN is_late END), 2) AS late_rate_2018,
+  ROUND(100.0 * AVG(CASE WHEN strftime('%Y', order_purchase_timestamp) = '2017' THEN is_late END), 2) AS late_rate_2017
+FROM delivered_orders
+WHERE strftime('%Y', order_purchase_timestamp) IN ('2017','2018')
+GROUP BY customer_state
+HAVING COUNT(CASE WHEN strftime('%Y', order_purchase_timestamp) = '2018' THEN 1 END) > 0
+ORDER BY late_rate_2018 DESC
+LIMIT 1;","The state with the highest late rate in 2018 was AL, with a late rate of 22.22%; its late rate in 2017 was 20.71%."
+M2,"Which purchase month had the most delivered orders, how many orders was that, and what was the late rate in that month?",2017-11|november 2017|nov 2017 ; 7288 ; 12.4,True,,False,2017-11|november 2017|nov 2017,"November 2017 had the most delivered orders with 7,288 orders and a late rate of 12.4 percent.",3,1,4985,32.68,answer writer (fallback),2,,"SELECT purchase_month,
+       COUNT(*) AS orders_count,
+       ROUND(100.0 * AVG(is_late), 2) AS late_rate_percent
+FROM delivered_orders
+GROUP BY purchase_month
+ORDER BY orders_count DESC
+LIMIT 1;","The month with the most delivered orders was 2017-11-01, with 7288 orders and a late rate of 12.4%."
+M3,"For the seller with the most delivered orders (single-seller orders), how many orders did they deliver, and what are their late rate and average review score?",1784 ; 5.33 ; 3.98,True,,True,,"The top seller delivered 1784 orders, with a late rate of 5.33 % and an average review score of 4.0.",3,1,5623,4.92,answer writer (fallback),2,,"WITH seller_counts AS (
+  SELECT seller_id, COUNT(*) AS orders_cnt
+  FROM delivered_orders
+  WHERE seller_id IS NOT NULL
+  GROUP BY seller_id
+), top_seller AS (
+  SELECT seller_id, orders_cnt
+  FROM seller_counts
+  ORDER BY orders_cnt DESC
+  LIMIT 1
+)
+SELECT s.seller_id,
+       s.orders_cnt AS delivered_orders,
+       ROUND(100.0 * AVG(d.is_late), 2) AS late_rate_percent,
+       ROUND(AVG(d.review_score), 2) AS avg_review_score
+FROM top_seller s
+JOIN delivered_orders d ON d.seller_id = s.seller_id
+WHERE d.seller_id IS NOT NULL
+GROUP BY s.seller_id, s.orders_cnt;","The seller 1236 delivered 1784 orders, with a late rate of 5.33 % and an average review score of 4.0."
+M4,"Among the 5 product categories with the most delivered orders, which one has the lowest average review score, and what is that score?","bed_bath_table|bed bath table|bed, bath ; 3.98",False,"bed_bath_table|bed bath table|bed, bath",True,,bed_bath_table has the lowest average review score of 3.94.,4,2,8300,8.92,answer writer (fallback),2,,"WITH distinct_orders AS (
+  SELECT DISTINCT do.order_id, oi.product_id
+  FROM delivered_orders do
+  JOIN order_items oi ON do.order_id = oi.order_id
+), cat_counts AS (
+  SELECT p.product_category_name, COUNT(*) AS order_cnt
+  FROM distinct_orders d
+  JOIN products p ON d.product_id = p.product_id
+  GROUP BY p.product_category_name
+  ORDER BY order_cnt DESC
+  LIMIT 5
+), cat_reviews AS (
+  SELECT p.product_category_name, AVG(do.review_score) AS avg_score
+  FROM distinct_orders d
+  JOIN products p ON d.product_id = p.product_id
+  JOIN delivered_orders do ON d.order_id = do.order_id
+  WHERE do.review_score IS NOT NULL
+  GROUP BY p.product_category_name
+)
+SELECT c.product_category_name, c.order_cnt, r.avg_score
+FROM cat_counts c
+LEFT JOIN cat_reviews r USING (product_category_name)
+ORDER BY r.avg_score ASC
+LIMIT 1;",cama_mesa_banho has the lowest average review score of 3.943065545537433.
+M5,"What is the average review score of late orders and of on-time orders, and how many points lower is it for late orders?",2.25 ; 4.28 ; 2.03,True,,True,,"The average review score is 2.27 for late orders and 4.29 for on‑time orders, which is 2.02 points lower for late orders.",3,1,3220,5.98,answer writer (fallback),2,,"SELECT is_late, ROUND(AVG(review_score),2) AS avg_review_score, COUNT(*) AS cnt
+FROM delivered_orders
+WHERE review_score IS NOT NULL
+GROUP BY is_late","The average review score for on‑time orders is 4.29, while for late orders it is 2.27. Late orders score 2.02 points lower."
+M6,"What percentage of late orders had the seller miss the hand-over deadline, and what is the late rate of orders where the seller did not miss it?",27.74 ; 5.39,True,,True,,"27.74 % of late orders had the seller miss the hand‑over deadline, and the late rate when the seller did not miss it was 5.39 %.",3,1,3674,20.84,answer writer (fallback),2,,"SELECT
+ ROUND(100.0 * SUM(CASE WHEN is_late=1 AND seller_missed_deadline=1 THEN 1 END) / NULLIF(SUM(is_late),0),2) AS pct_late_orders_with_missed_deadline,
+ ROUND(100.0 * SUM(CASE WHEN is_late=1 AND seller_missed_deadline=0 THEN 1 END) / NULLIF(SUM(CASE WHEN seller_missed_deadline=0 THEN 1 END),0),2) AS late_rate_without_missed_deadline
+FROM delivered_orders;","27.74% of late orders had the seller miss the hand‑over deadline, and the late rate for orders where the seller did not miss it is 5.39%."
+M7,"Which payment type is used in the most payment records, and what is the average payment value for that type?",credit_card|credit card ; 163.32,True,,True,,"The most common payment type is “credit_card,” with an average payment value of 163.32.",3,1,3203,4.56,answer writer (fallback),2,,"SELECT payment_type, COUNT(*) AS cnt, ROUND(AVG(payment_value),2) AS avg_value
+FROM payments
+GROUP BY payment_type
+ORDER BY cnt DESC
+LIMIT 1;","The payment type with the most records is credit_card, with an average payment value of 163.32."
+M8,"Which customer state has the longest average total delivery time, what is that average in days, and what is the average for SP?",RR ; 29.91 ; 8.74,True,,True,,"The state with the longest average total delivery time is RR with an average of ""29.91"" days, and the average for SP is ""8.74"" days.",4,2,6772,4.95,answer writer (fallback),2,,"SELECT ROUND(AVG(total_days),2) AS avg_total_days FROM delivered_orders WHERE customer_state = 'SP'","RR has the longest average total delivery time at 29.91 days, and the average for SP is 8.74 days."
+M9,"How many sellers have at least 100 delivered orders (single-seller orders), and which of those sellers has the highest late rate, and what is it?",199 ; 82 ; 19.27,True,,True,,199 sellers have at least 100 delivered orders; seller 82 has the highest late rate at 19.27 percent.,3,1,3871,8.18,answer writer (fallback),2,,"SELECT 
+  (SELECT COUNT(*) FROM (
+      SELECT seller_id FROM delivered_orders WHERE n_sellers=1 GROUP BY seller_id HAVING COUNT(*)>=100
+  )) AS seller_count,
+  (SELECT seller_id FROM delivered_orders WHERE n_sellers=1 GROUP BY seller_id HAVING COUNT(*)>=100 ORDER BY AVG(is_late) DESC LIMIT 1) AS top_seller_id,
+  (SELECT ROUND(100.0*AVG(is_late),2) FROM delivered_orders WHERE n_sellers=1 GROUP BY seller_id HAVING COUNT(*)>=100 ORDER BY AVG(is_late) DESC LIMIT 1) AS top_late_rate;",199 sellers have at least 100 delivered orders; seller 82 has the highest late rate at 19.27%.
+M10,"What is the late rate for same-state orders and for cross-state orders, and what is the difference in percentage points?",4.57 ; 8.03 ; 3.46,True,,True,,"The late rate is 4.57% for same‑state orders and 8.03% for cross‑state orders, a difference of ‑3.46 percentage points.",3,1,3169,30.29,answer writer (fallback),2,,"SELECT same_state, ROUND(100.0 * AVG(is_late), 2) AS late_rate_pct FROM delivered_orders GROUP BY same_state","Same-state orders have a late rate of 4.57 %, cross‑state orders have a late rate of 8.03 %, a difference of 3.46 percentage points."
+M11,"Which purchase month had the highest late rate, what was the rate, and how many orders were late that month?",2018-03|march 2018|mar 2018 ; 18.96 ; 1328,True,,False,2018-03|march 2018|mar 2018,"The month of 2018‑03 had the highest late rate at ""18.96%"" with ""1328"" late orders.",3,1,4956,22.14,answer writer (fallback),2,,"SELECT purchase_month,
+       ROUND(100.0 * AVG(is_late), 2) AS late_rate,
+       SUM(is_late) AS late_orders
+FROM delivered_orders
+GROUP BY purchase_month
+ORDER BY late_rate DESC
+LIMIT 1;","The month with the highest late rate was 2018-03-01, with a late rate of 18.96% and 1328 late orders."
+M12,"What is the average freight value per delivered order for the customer state with the most orders, and for the state with the fewest orders? Name both states.",SP ; 17.33 ; RR ; 48.82,True,,True,,"The state with the most orders is SP with an average freight of ""17.33"", and the state with the fewest orders is RR with an average freight of ""48.82"".",3,1,3626,5.92,answer writer (fallback),2,,"WITH cnt AS (
+  SELECT customer_state, COUNT(*) AS cnt
+  FROM delivered_orders
+  GROUP BY customer_state
+), max_state AS (
+  SELECT customer_state FROM cnt ORDER BY cnt DESC LIMIT 1
+), min_state AS (
+  SELECT customer_state FROM cnt ORDER BY cnt ASC LIMIT 1
+)
+SELECT d.customer_state,
+       ROUND(AVG(d.freight_value), 2) AS avg_freight
+FROM delivered_orders d
+WHERE d.customer_state IN (SELECT customer_state FROM max_state UNION SELECT customer_state FROM min_state)
+GROUP BY d.customer_state;","RR 48.82, SP 17.33"
+M13,"Which product category has the highest revenue (sum of item prices, all orders), and what percentage of total revenue is that?",health_beauty|health beauty|health & beauty|health and beauty ; 9.26,True,,False,9.26,"The health_beauty category has the highest revenue, with BRL 1,258,681.34, which represents 9.39 % of total revenue.",3,1,3549,6.18,answer writer (fallback),2,,"WITH cat_rev AS (
+  SELECT p.product_category_name, SUM(oi.price) AS revenue
+  FROM order_items oi
+  JOIN products p ON oi.product_id = p.product_id
+  GROUP BY p.product_category_name
+), total AS (SELECT SUM(revenue) AS total_rev FROM cat_rev)
+SELECT ce.product_category_name_english AS category,
+       ROUND(100.0 * cr.revenue / t.total_rev, 2) AS pct_of_total,
+       cr.revenue
+FROM cat_rev cr
+JOIN total t ON 1=1
+JOIN category_en ce ON cr.product_category_name = ce.product_category_name
+ORDER BY cr.revenue DESC
+LIMIT 1;","health_beauty has the highest revenue, accounting for 9.26% of total revenue."
+M14,"What is the average total delivery time in days for orders with a 5-star review, and for orders with a 1-star review?",10.67 ; 21.32,True,,True,,"The average total delivery time for 5‑star orders is ""10.67"" days, while for 1‑star orders it is ""21.33"" days.",3,1,3229,17.76,answer writer (fallback),2,,"SELECT review_score, ROUND(AVG(total_days),2) AS avg_total_days
+FROM delivered_orders
+WHERE review_score IN (5,1)
+GROUP BY review_score",The average total delivery time is 10.67 days for 5‑star reviews and 21.33 days for 1‑star reviews.
+M15,"How many customers (people) placed more than one delivered order, and what percentage of all customers with delivered orders is that?",2784 ; 3.0,True,,True,,"2784 customers placed more than one delivered order, which is 3.0 % of all customers with delivered orders.",3,1,3322,6.27,answer writer (fallback),2,,"WITH cust_counts AS (
+  SELECT customer_unique_id, COUNT(*) AS orders_cnt
+  FROM delivered_orders
+  GROUP BY customer_unique_id
+)
+SELECT 
+  SUM(CASE WHEN orders_cnt > 1 THEN 1 ELSE 0 END) AS multi_order_customers,
+  COUNT(*) AS total_customers,
+  ROUND(100.0 * SUM(CASE WHEN orders_cnt > 1 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct_multi
+FROM cust_counts;","2784 customers placed more than one delivered order, which is 3.0% of all customers with delivered orders."
+M16,"Which seller state ships the most delivered orders (single-seller orders), and what is the late rate of its orders that go to customers in other states?",SP ; 9.67,True,,True,,"SP ships the most delivered orders, with a late rate of 9.67% for orders to other states.",4,2,6887,7.2,answer writer (fallback),2,,"SELECT ROUND(100.0 * AVG(is_late), 2) AS late_rate
+FROM delivered_orders
+WHERE n_sellers = 1 AND seller_state = 'SP' AND same_state = 0;","The seller state with the most delivered single‑seller orders is SP with 67,241 orders. Its late rate for orders shipped to customers in other states is 9.67%."
+M17,What was the late rate for orders purchased in Q1 2018 (Jan-Mar) and in Q2 2018 (Apr-Jun)? Did it go up or down?,12.88 ; 4.19 ; down|decreas|fell|dropped|declin|lower,True,,True,,"The late rate was 12.88 % in Q1 2018 and 4.19 % in Q2 2018, so it went down.",3,1,3435,433.64,answer writer (fallback),2,,"SELECT CASE WHEN strftime('%m', order_purchase_timestamp) BETWEEN '01' AND '03' THEN 'Q1' ELSE 'Q2' END AS quarter,
+       ROUND(100.0 * AVG(is_late), 2) AS late_rate
+FROM delivered_orders
+WHERE order_purchase_timestamp >= '2018-01-01' AND order_purchase_timestamp < '2018-07-01'
+GROUP BY quarter;","The late rate was 12.88 % in Q1 2018 and 4.19 % in Q2 2018, so it went down."
+M18,"On which day of the week (by purchase date) is the late rate highest, and what is it?",Monday ; 7.47,False,Monday,True,,"Monday, 7.47%",3,1,3260,4.82,answer writer (fallback),2,,"SELECT strftime('%w', order_purchase_timestamp) AS weekday,
+       ROUND(100.0 * AVG(is_late), 2) AS late_rate
+FROM delivered_orders
+GROUP BY weekday
+ORDER BY late_rate DESC;",The highest late rate is on weekday “1” with a rate of 7.47.
+M19,"How many orders were delivered more than 10 days after the promised date, and what is their average review score?",2090 ; 1.71,True,,True,,"2090 orders were delivered more than 10 days after the promised date, and their average review score was 1.71.",3,1,3227,4.42,answer writer (fallback),2,,"SELECT COUNT(*) AS orders_count,
+       ROUND(AVG(review_score), 2) AS avg_review_score
+FROM delivered_orders
+WHERE days_vs_promise > 10;","2090 orders were delivered more than 10 days after the promised date, with an average review score of 1.71."
+M20,"Which customer city has the most delivered orders, how many is that, and what is the late rate there?",sao paulo|são paulo ; 14989 ; 4.76,True,,True,,"The city with the most delivered orders is “sao paulo” with 14,989 orders and a late rate of 4.76 %.",3,1,3365,6.46,answer writer (fallback),2,,"SELECT c.customer_city AS city,
+       COUNT(*) AS delivered_orders,
+       ROUND(100.0 * AVG(d.is_late), 2) AS late_rate
+FROM delivered_orders d
+JOIN orders o ON d.order_id = o.order_id
+JOIN customers c ON o.customer_id = c.customer_id
+GROUP BY c.customer_city
+ORDER BY delivered_orders DESC
+LIMIT 1;",sao paulo has the most delivered orders with 14989 orders and a late rate of 4.76.

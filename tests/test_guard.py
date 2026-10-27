@@ -51,3 +51,10 @@ def test_small_limit_kept():
 
 def test_comment_text_is_not_a_statement():
     assert check_sql("SELECT * FROM orders /* ; DROP TABLE orders */ LIMIT 1")
+
+
+def test_system_tables_are_not_repairable():
+    for sql in ["SELECT * FROM sqlite_master", "SELECT name FROM pragma_table_list"]:
+        with pytest.raises(UnsafeSQL) as e:
+            check_sql(sql)
+        assert not e.value.repairable
